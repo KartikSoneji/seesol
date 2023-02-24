@@ -12,6 +12,26 @@ import fetch from "node-fetch";
 
 const connection = new Connection("https://api.devnet.solana.com");
 
+interface TokenData {
+    owner: PublicKey;
+    lastUpdateSlot: number;
+}
+
+const DB: Map<string, TokenData> = new Map();
+
+async function saveToDb(mint: PublicKey, data: TokenData): Promise<void> {
+    DB.set(mint.toBase58(), data);
+}
+
+async function getFromDb(mint: PublicKey): Promise<TokenData> {
+    return (
+        DB.get(mint.toBase58()) ?? {
+            owner: new PublicKey(0),
+            lastUpdateSlot: 0
+        }
+    );
+}
+
 async function main() {
     const mints = [
         new PublicKey("2oLvkQqNemhVZ27yxgbsSe1d8NgLwKhKL3agU71X6Fsr")
@@ -31,9 +51,15 @@ if (require.main)
 
 async function registerATAListenersForMints(mints: PublicKey[]): Promise<void> {
     let tokenAccounts = await fetchTokenAccountsForMints(mints);
-    const batchSize = 50;
-    for (let i = 0; i < tokenAccounts.length; i++)
+    for (let i = 0; i < tokenAccounts.length; i++) {
+        // seed database with current owners accounts
+        // if script crashes, this should ensure the current state is valid
+        await saveToDb(mints[i], {
+            owner: tokenAccounts[i].owner,
+            lastUpdateSlot: 0
+        });
         await registerOnATAChangeHandler(mints[i], tokenAccounts[i].address);
+    }
 }
 
 interface JsonRpcOperation {
@@ -110,12 +136,12 @@ async function batchRpcRequest(operations: JsonRpcOperation[]): Promise<any[]> {
     return request.json();
 }
 
-const MINT_CHANGE_HANDLER_MAP = new Map<PublicKey, number>();
+const MINT_CHANGE_HANDLER_MAP = new Map<string, number>();
 async function registerOnATAChangeHandler(
     mint: PublicKey,
     tokenAccountAddress: PublicKey
 ): Promise<void> {
-    let currentListenerId = MINT_CHANGE_HANDLER_MAP.get(mint);
+    let currentListenerId = MINT_CHANGE_HANDLER_MAP.get(mint.toBase58());
     if (typeof currentListenerId == "number")
         await connection.removeAccountChangeListener(currentListenerId);
 
@@ -123,7 +149,7 @@ async function registerOnATAChangeHandler(
         tokenAccountAddress,
         createOnATAChangeHandler(mint, tokenAccountAddress)
     );
-    MINT_CHANGE_HANDLER_MAP.set(mint, listenerId);
+    MINT_CHANGE_HANDLER_MAP.set(mint.toBase58(), listenerId);
 }
 
 function createOnATAChangeHandler(
@@ -131,11 +157,7 @@ function createOnATAChangeHandler(
     tokenAccountAddress: PublicKey
 ): AccountChangeCallback {
     return async (accountInfo, { slot }) => {
-        let { oldOwner, lastUpdateSlot } =
-            /* fetch last update slot and old owner */ {
-                oldOwner: new PublicKey(0),
-                lastUpdateSlot: 0
-            };
+        let { owner: oldOwner, lastUpdateSlot } = await getFromDb(mint);
         if (lastUpdateSlot >= slot) {
             console.warn(
                 `skipping update for ${mint} since` +
@@ -150,7 +172,7 @@ function createOnATAChangeHandler(
         } catch (e) {
             console.warn(e);
         }
-        if(!tokenAccount || tokenAccount.amount !== 1n)
+        if (!tokenAccount || tokenAccount.amount !== 1n)
             [tokenAccount] = await fetchTokenAccountsForMints([mint]);
 
         let currentOwner = tokenAccount.owner;
@@ -160,7 +182,7 @@ function createOnATAChangeHandler(
             console.log(
                 `owner changed for ${mint}: ${oldOwner} -> ${currentOwner}`
             );
-            // set ${currentOwner} as owner of ${mint} and set lastUpdateSlot = slot
+            await saveToDb(mint, { owner: currentOwner, lastUpdateSlot: slot });
             // change roles, if needed
         }
         if (!tokenAccountAddress.equals(tokenAccount.address)) {
@@ -170,5 +192,6 @@ function createOnATAChangeHandler(
             );
             registerOnATAChangeHandler(mint, tokenAccount.address);
         }
+        console.log();
     };
 }
