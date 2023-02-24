@@ -1,8 +1,8 @@
-# seesol 🌟
-
-Track ownership of SOL tokens and NFTs in real-time 📈
-
-![See Sol Mascot](https://i.imgur.com/a7N16lp.png)
+<p align="center">
+  <img src="https://i.imgur.com/a7N16lp.png" width="200" height="200">
+  <h1 align="center" style="display:block;">seesol 🌟</h1>
+  <p align="center">Track ownership of SOL tokens and NFTs in real-time 📈</p>
+</p>
 
 ### Introduction 🎉
 
