@@ -126,6 +126,7 @@ async function fetchTokenAccountsForMints(
 }
 
 async function batchRpcRequest(operations: JsonRpcOperation[]): Promise<any[]> {
+    if (operations.length === 0) return [];
     let request = await fetch(connection.rpcEndpoint, {
         method: "POST",
         headers: {
